@@ -40,6 +40,19 @@ import pkgutil
 import unittest
 
 
+def _named(case_class, name):
+    """Name a generated TestCase class after what it stands for.
+
+    On the *class*, not the instance: ``TestCase.id()`` reads the class, so setting
+    ``__name__`` on an instance changes nothing and the id comes out as
+    ``tests._import_failure.<locals>._ImportFailure.runTest`` -- which names neither the
+    module nor the test, and that is the only thing these placeholders exist to do.
+    """
+    case_class.__name__ = name
+    case_class.__qualname__ = name
+    return case_class()
+
+
 def _wrapper(module_name, function_name, function):
     """Return a one-method ``TestCase`` whose only job is to call ``function``."""
 
@@ -47,21 +60,47 @@ def _wrapper(module_name, function_name, function):
         def runTest(self):  # unittest's own protocol name; it is not misspelled
             function()
 
-    _BareFunctionTest.__name__ = "Test_%s_%s" % (module_name, function_name)
-    _BareFunctionTest.__qualname__ = _BareFunctionTest.__name__
-    return _BareFunctionTest()
+    return _named(_BareFunctionTest, "Test_%s_%s" % (module_name, function_name))
+
+
+def _import_failure(module_name, error):
+    """A single failing test standing in for a module that would not import.
+
+    Enumerating modules means importing them, which means this module needs whatever they
+    import. A dependency that is missing from the manifest therefore lands here, and
+    without this it lands *badly*: importing the package raises, ``discover`` wraps that in
+    one ``_FailedTest`` for the package, and the guard reports
+
+        17 test functions in source | 1 collected by unittest
+
+    pointing at "16 invisible tests" when the actual message is "No module named 'numpy'".
+    Measured, on kineworld/kine-bench: that is exactly what a torch-only environment
+    produced. One placeholder per module keeps the other modules running and puts the real
+    exception in the test output, which is also what unittest does for a module it cannot
+    import during discovery.
+    """
+
+    class _ImportFailure(unittest.TestCase):
+        def runTest(self):
+            raise error
+
+    return _named(_ImportFailure, "Test_%s_import" % module_name)
 
 
 def _iter_test_modules():
-    """Yield ``(name, module)`` for every ``test_*.py`` beside this file.
+    """Yield ``(name, module_or_None, error_or_None)`` for every ``test_*.py`` beside this file.
 
     Enumerated at import time rather than listed in a literal: a file added later must not
     need an edit here. A hand-maintained list drifts, and a drifted list silently stops
     covering the thing it was written to cover -- which is this defect one level up.
     """
     for info in sorted(pkgutil.iter_modules(__path__), key=lambda i: i.name):
-        if info.name.startswith("test_"):
-            yield info.name, importlib.import_module("%s.%s" % (__name__, info.name))
+        if not info.name.startswith("test_"):
+            continue
+        try:
+            yield info.name, importlib.import_module("%s.%s" % (__name__, info.name)), None
+        except Exception as error:  # noqa: BLE001 - reported as a failing test, not swallowed
+            yield info.name, None, error
 
 
 def load_tests(loader, tests, pattern):
@@ -74,7 +113,10 @@ def load_tests(loader, tests, pattern):
     passing tests.
     """
     suite = unittest.TestSuite()
-    for module_name, module in _iter_test_modules():
+    for module_name, module, error in _iter_test_modules():
+        if error is not None:
+            suite.addTest(_import_failure(module_name, error))
+            continue
         # 1. TestCase subclasses, through the standard loader, so that the usual rules
         #    (including a module-level load_tests) still apply to them.
         suite.addTests(loader.loadTestsFromModule(module))

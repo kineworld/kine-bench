@@ -91,12 +91,24 @@ def main():
           % (len(files), DIR_NAME, expected, collected))
 
     if collected != expected:
-        missing = expected - collected
+        # Both directions, because only one of them used to be described. When the runner
+        # collects MORE than the source defines the old message printed a negative count
+        # ("-1 invisible"), which is not a thing.
+        if collected < expected:
+            detail = ("%d test function(s) here are not collected by the runner, so they can "
+                      "never fail. If they are written as module-level functions, "
+                      "guards/load_tests.py in kineworld/.github is the fix."
+                      % (expected - collected))
+        else:
+            detail = ("the runner collected %d more test(s) than the source defines. Usually "
+                      "that is a name imported into a test module rather than defined in it, or "
+                      "a definition in a place ast does not count -- a function under an `if` "
+                      "at module level, for instance." % (collected - expected))
         raise SystemExit(
-            "the runner collected %d tests but the source defines %d (%d invisible). "
-            "A test that does not run cannot fail. If the invisible tests are written as "
-            "module-level functions, see kineworld/kine-jepa#4 for the load_tests fix."
-            % (collected, expected, missing)
+            "the runner collected %d tests but the source defines %d. %s "
+            "This also fires when a test module cannot be imported at all, which is a "
+            "different fix entirely -- run the suite to see the import error."
+            % (collected, expected, detail)
         )
 
     print("ok: every test in %s/ is visible to the runner" % DIR_NAME)
