@@ -1,0 +1,39 @@
+# Recorded artifacts are hashed by their bytes, so git must not convert them.
+#
+# verification/scripts/verify_risk_card_v0.py recomputes a sha256 for every path named in
+# verification/manifests/KW-RISK-CARD-v0_manifest.json and in the source_artifacts block of
+# results/KW_RISK_CARD_v0.json. Twelve paths, matched by the four rules below.
+#
+# With git's default core.autocrlf=true on Windows, checkout rewrites LF to CRLF in any
+# file git considers text. The verifier then reports nine hash mismatches on a checkout
+# whose repository content is exactly right:
+#
+#   KW-RISK-CARD-0001 integrity: FAIL
+#   - hash mismatch builder / offline_verifier / release_readme / test
+#   - hash mismatch cluster_audit_result / cluster_audit_script / cluster_audit_report
+#   - hash mismatch attestation_template
+#   - frozen source hash mismatch: cluster_audit
+#
+# CI runs on Linux, where the default is no conversion, so the mismatch has never been
+# visible there -- a green job next to a red laptop.
+#
+# -text means "never convert": the working tree is the blob, on every platform. It changes
+# no committed byte. Every recorded hash already equals the sha256 of its blob, which is
+# what makes this rule the whole fix -- nothing is re-frozen and nothing is re-issued.
+#
+# A path added to either manifest that the four rules below do not match has to be added
+# here too, or it will hash correctly in CI and wrongly on Windows.
+
+# Machine-readable and human-readable cards, plus every experiment result.
+results/**                             -text
+
+# Manifests, scripts, patches, attestation template, release notes, cluster-audit report.
+# The patches are line-ending sensitive in their own right: a patch that arrives with CRLF
+# does not apply.
+verification/**                        -text
+
+# This one test is itself a recorded artifact -- the release manifest hashes it.
+tests/test_risk_card_v0.py             -text
+
+# The human-readable card is recorded outside results/, so it needs its own line.
+docs/product/KINEWORLD_RISK_CARD_v0.md -text
