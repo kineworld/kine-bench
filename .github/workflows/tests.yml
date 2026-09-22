@@ -1,0 +1,41 @@
+# The whole suite, and a check that the whole suite was collected.
+#
+# Before this file, `tests.yml` did not exist and `evidence-integrity.yml` ran
+#
+#     python -m unittest tests.test_risk_card_v0 -v
+#
+# which is one of the three test files, by name. `tests/test_adapters.py` (10 tests) and
+# `tests/test_adapter_wiring.py` (1) were not run by any job -- and because that workflow
+# filters on `paths:`, neither file was even in its trigger list, so editing them started
+# nothing. The 11 tests all pass; they had simply never been executed.
+#
+# No `paths:` filter here, deliberately. The narrow one above is why a test file could
+# change without CI noticing, and "which paths must be listed for this to be meaningful" is
+# a question that has to be kept correct by hand. The suite is 17 tests and takes about two
+# seconds; running it on every push and pull request costs less than maintaining the list.
+#
+# The job itself is three lines; the runner, the collection guard that proves the runner
+# saw every test, and the layout rule that decides how to invoke it all live in
+# kineworld/.github, so the four repositories that need this cannot drift apart.
+
+name: tests
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  tests:
+    uses: kineworld/.github/.github/workflows/python-tests.yml@main
+    with:
+      # `torch>=2.0` from requirements.txt, unpinned, so CI resolves whatever is current.
+      # Pinning it is a decision about what this repository supports rather than a CI
+      # detail, so it is left as it is -- but note that kineworld/kine-jepa#3 is exactly
+      # the failure an unpinned torch produces: one test, two torch versions, both
+      # "correct", disagreeing about whether it passes.
+      install: "-r requirements.txt"
