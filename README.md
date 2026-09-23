@@ -32,6 +32,12 @@ python -m kinebench run --smoke --max-clips 8 --device cpu
 
 Adapters report unsupported capabilities as `n/a`; they do not manufacture comparable scores for missing interfaces.
 
+For offline V-JEPA 2 evaluation, install `requirements-vjepa2.txt` and point
+`KINE_VJEPA2_LOCAL` at the local Hugging Face checkpoint directory. The adapter
+loads all safetensors shards through Transformers and rejects missing, extra or
+incompatible parameters before scoring. The optional CI job checks this with
+small synthetic local weights; it does not download or redistribute Meta weights.
+
 ## Independent verification
 
 Passing KineWorld's integrity checks only proves artifact consistency. Evidence becomes independent only when an external evaluator obtains the named upstream checkpoint, reruns the frozen protocol, retains raw logs and signs the supplied attestation with all deviations disclosed.
