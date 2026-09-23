@@ -32,13 +32,14 @@ def ensure_jepa_path() -> None:
 def unwrap_state(state):
     if not state:
         return state, {}
+    if any(k.startswith("module.") for k in state):
+        state = {k[len("module."):] if k.startswith("module.") else k: v
+                 for k, v in state.items()}
     head = {k[len("head."):]: v for k, v in state.items() if k.startswith("head.")}
     if any(k.startswith("base.") for k in state):
         base = {k[len("base."):]: v for k, v in state.items() if k.startswith("base.")}
         return base, head
-    if any(k.startswith("module.") for k in state):
-        return {k[len("module."):]: v for k, v in state.items()}, head
-    return state, head
+    return {k: v for k, v in state.items() if not k.startswith("head.")}, head
 
 
 def attach_head(model, head_state):
@@ -48,7 +49,7 @@ def attach_head(model, head_state):
     from kineworld_jepa.causal import InterventionHead
     dim = model.predictor.mask_token.shape[-1]
     head = InterventionHead(dim)
-    head.load_state_dict(head_state, strict=False)
+    head.load_state_dict(head_state, strict=True)
     model.intervention_head = head
     return model
 
@@ -76,7 +77,8 @@ def load_model(ckpt_path, device, img_size=224, num_frames=16):
             kw["pred_depth"] = int(cfg.get("pred_depth", 2))
     model = KineJEPA(**kw)
     if state is not None:
-        model.load_state_dict(state, strict=False)
+        # An incomplete checkpoint must not silently benchmark random layers.
+        model.load_state_dict(state, strict=True)
     attach_head(model, head_state)
     if getattr(model, "intervention_head", None) is not None:
         model.intervention_head.to(device).eval()
