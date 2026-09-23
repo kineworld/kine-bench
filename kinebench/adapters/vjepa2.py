@@ -125,11 +125,16 @@ class _VJEPA2Facade:
         arr = torch.stack([
             torch.from_numpy(c).permute(3, 0, 1, 2).float() / 255.0 for c in clips
         ])
-        arr = F.interpolate(
-            arr.reshape(-1, 3, arr.shape[2], arr.shape[4]),
+        batch, channels, frames, height, width = arr.shape
+        # Resize each video frame as an image. A direct reshape of (B,C,T,H,W)
+        # mixes channels and time, and can even change the frame count.
+        images = arr.permute(0, 2, 1, 3, 4).reshape(batch * frames, channels, height, width)
+        images = F.interpolate(
+            images,
             size=(self.img_size, self.img_size), mode="bilinear", align_corners=False,
         )
-        arr = arr.reshape(len(clips), -1, 3, self.img_size, self.img_size).permute(0, 2, 1, 3, 4)
+        arr = images.reshape(batch, frames, channels, self.img_size, self.img_size)
+        arr = arr.permute(0, 2, 1, 3, 4)
         mean = torch.tensor(self._mean, device=arr.device).view(1, 3, 1, 1, 1)
         std = torch.tensor(self._std, device=arr.device).view(1, 3, 1, 1, 1)
         return {"pixel_values_videos": (arr - mean) / std}
