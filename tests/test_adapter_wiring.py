@@ -71,7 +71,7 @@ def test_vjepa2_facade_wiring():
         r3 = intervention_auc(model, "cpu", n_pairs=4, frames=16, size=64)
         assert r3["auc_do"] is None
         assert "auc" in r3
-        print("PASS test_vjepa2_facade_wiring  grid=%s auc=%.3f mot=%.3f" % (
+        print("PASS test_vjepa2_facade_wiring  grid=%s auc=%.3f mot=%s" % (
             model.grid, r3["auc"], r2["pearson_r"]))
 
 

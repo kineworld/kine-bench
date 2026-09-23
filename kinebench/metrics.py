@@ -20,12 +20,12 @@ def _pooled(encoder, videos, device):
     return feats.mean(dim=1)            # (B, D)
 
 
-def _split_indices(n, seed=0, groups=None):
+def _split_indices(n, seed=0, groups=None, min_test=2):
     """Split complete source-video groups so augmented views cannot cross sets."""
     g = torch.Generator().manual_seed(seed)
     if groups is None:
         perm = torch.randperm(n, generator=g)
-        n_test = max(2, min(int(n * 0.3), n - 2))
+        n_test = max(min_test, min(int(n * 0.3), n - 2))
         return perm[n_test:], perm[:n_test]
     groups = torch.as_tensor(groups)
     if len(groups) != n:
@@ -39,8 +39,10 @@ def _split_indices(n, seed=0, groups=None):
     return torch.where(~test_mask)[0], torch.where(test_mask)[0]
 
 
-def _train_probe(X, y, kind="cls", epochs=400, lr=3e-3, seed=0, groups=None):
-    train_idx, test_idx = _split_indices(X.shape[0], seed=seed, groups=groups)
+def _train_probe(X, y, kind="cls", epochs=400, lr=3e-3, seed=0, groups=None,
+                 min_test=2):
+    train_idx, test_idx = _split_indices(X.shape[0], seed=seed, groups=groups,
+                                         min_test=min_test)
     probe = nn.Linear(X.shape[1], 1)
     opt = torch.optim.Adam(probe.parameters(), lr=lr)
     Xt, yt = X[train_idx], y[train_idx]
@@ -87,16 +89,33 @@ def temporal_order(model, clips, device, seed=0):
 
 def motion_magnitude(model, clips, device, seed=0):
     """KINE-MOT-1: linear regression from features to clip motion energy (Pearson r)."""
+    if len(clips) < 6:
+        return {"pearson_r": None, "baseline": 0.0, "status": "unavailable",
+                "error": "Pearson r requires at least 3 train and 3 test clips"}
+    if any(c.shape[1] < 2 for c in clips):
+        return {"pearson_r": None, "baseline": 0.0, "status": "unavailable",
+                "error": "motion energy requires at least two frames per clip"}
     torch.manual_seed(seed)
     videos = torch.stack(clips)
     X = _pooled(model.target, videos, device).cpu().float()
     gt = torch.stack([(c[:, 1:] - c[:, :-1]).abs().mean() for c in clips])
+    if not torch.isfinite(X).all() or not torch.isfinite(gt).all():
+        return {"pearson_r": None, "baseline": 0.0, "status": "unavailable",
+                "error": "nonfinite probe features or motion labels"}
     gt = (gt - gt.mean()) / (gt.std() + 1e-6)
-    probe, test_idx = _train_probe(X, gt, kind="reg", epochs=600, seed=seed)
+    probe, test_idx = _train_probe(X, gt, kind="reg", epochs=600, seed=seed,
+                                  min_test=3)
     with torch.no_grad():
         pred = probe(X[test_idx]).squeeze(-1)
+        if (not torch.isfinite(pred).all()
+                or gt[test_idx].var(unbiased=False) <= 1e-12
+                or pred.var(unbiased=False) <= 1e-12):
+            return {"pearson_r": None, "baseline": 0.0, "status": "unavailable",
+                    "error": "held-out labels or predictions have zero variance or nonfinite values",
+                    "n_test": len(test_idx)}
         r = torch.corrcoef(torch.stack([pred, gt[test_idx]]))[0, 1].item()
-    return {"pearson_r": round(float(r), 4), "baseline": 0.0}
+    return {"pearson_r": round(float(r), 4), "baseline": 0.0,
+            "n_test": len(test_idx)}
 
 
 def future_prediction(model, clips, device, seed=0):
