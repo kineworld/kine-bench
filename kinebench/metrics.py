@@ -20,12 +20,27 @@ def _pooled(encoder, videos, device):
     return feats.mean(dim=1)            # (B, D)
 
 
-def _train_probe(X, y, kind="cls", epochs=400, lr=3e-3, seed=0):
+def _split_indices(n, seed=0, groups=None):
+    """Split complete source-video groups so augmented views cannot cross sets."""
     g = torch.Generator().manual_seed(seed)
-    n = X.shape[0]
-    perm = torch.randperm(n, generator=g)
-    n_test = max(2, min(int(n * 0.3), n - 2))
-    test_idx, train_idx = perm[:n_test], perm[n_test:]
+    if groups is None:
+        perm = torch.randperm(n, generator=g)
+        n_test = max(2, min(int(n * 0.3), n - 2))
+        return perm[n_test:], perm[:n_test]
+    groups = torch.as_tensor(groups)
+    if len(groups) != n:
+        raise ValueError("groups must have one entry per probe sample")
+    unique = torch.unique(groups)
+    if len(unique) < 2:
+        raise ValueError("grouped probe requires at least two source videos")
+    perm = unique[torch.randperm(len(unique), generator=g)]
+    n_test = max(1, min(int(len(unique) * 0.3), len(unique) - 1))
+    test_mask = torch.isin(groups, perm[:n_test])
+    return torch.where(~test_mask)[0], torch.where(test_mask)[0]
+
+
+def _train_probe(X, y, kind="cls", epochs=400, lr=3e-3, seed=0, groups=None):
+    train_idx, test_idx = _split_indices(X.shape[0], seed=seed, groups=groups)
     probe = nn.Linear(X.shape[1], 1)
     opt = torch.optim.Adam(probe.parameters(), lr=lr)
     Xt, yt = X[train_idx], y[train_idx]
@@ -46,6 +61,8 @@ def temporal_order(model, clips, device, seed=0):
     torch.manual_seed(seed)
     random.seed(seed)
     T = clips[0].shape[1]
+    if T < 2:
+        raise ValueError("temporal-order probe requires at least two frames per clip")
     shuf = []
     for c in clips:
         p = torch.randperm(T)
@@ -59,7 +76,9 @@ def temporal_order(model, clips, device, seed=0):
         _pooled(model.target, shuf, device),
     ], dim=0).cpu().float()
     y = torch.cat([torch.ones(len(clips)), torch.zeros(len(clips))])
-    probe, test_idx = _train_probe(X, y, kind="cls", seed=seed)
+    # Positive and shuffled views of one clip must stay in the same split.
+    groups = torch.arange(len(clips)).repeat(2)
+    probe, test_idx = _train_probe(X, y, kind="cls", seed=seed, groups=groups)
     with torch.no_grad():
         pred = (torch.sigmoid(probe(X[test_idx]).squeeze(-1)) > 0.5).float()
         acc = (pred == y[test_idx]).float().mean().item()
