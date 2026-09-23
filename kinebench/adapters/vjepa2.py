@@ -30,8 +30,8 @@ local `config.json` + `model.safetensors`, bypassing the hub entirely.
 
 from __future__ import annotations
 
-import glob
 import os
+from pathlib import Path
 from typing import Any, Dict, List, Sequence
 
 import numpy as np
@@ -170,26 +170,29 @@ class _VJEPA2Facade:
 
 
 def _load_offline(local_dir: str, device: str):
-    """Load V-JEPA 2 directly from a local dir (config.json + *.safetensors).
+    """Load complete V-JEPA 2 weights from a local directory.
 
     Bypasses the HuggingFace hub -- needed when the hub is unreachable (proxy
     pollution, air-gap, offline CI). The weights themselves are unmodified
     Meta checkpoints; we only skip the download step.
     """
-    from safetensors.torch import load_file
-    from transformers import AutoConfig, AutoModel
+    from transformers import AutoModel
 
-    os.environ.setdefault("HF_HUB_OFFLINE", "1")
-    os.environ.setdefault("TRANSFORMERS_OFFLINE", "1")
-    os.environ.setdefault("HF_HUB_DISABLE_TELEMETRY", "1")
-
-    cfg = AutoConfig.from_pretrained(local_dir, local_files_only=True)
-    model = AutoModel.from_config(cfg)
-    st_files = glob.glob(os.path.join(local_dir, "*.safetensors"))
-    if not st_files:
+    local = Path(local_dir)
+    if not local.is_dir() or not any(local.glob("*.safetensors")):
         raise FileNotFoundError(f"no .safetensors in {local_dir}")
-    sd = load_file(st_files[0])
-    model.load_state_dict(sd, strict=False)
+    # from_pretrained reads model.safetensors.index.json and all referenced shards.
+    # The old glob-first + strict=False path could score randomly initialized layers
+    # when a shard or parameter was missing, while still returning finite embeddings.
+    model, info = AutoModel.from_pretrained(
+        local_dir, local_files_only=True, use_safetensors=True,
+        output_loading_info=True,
+    )
+    problems = {key: info.get(key) for key in
+                ("missing_keys", "unexpected_keys", "mismatched_keys", "error_msgs")
+                if info.get(key)}
+    if problems:
+        raise RuntimeError(f"incomplete or incompatible local V-JEPA 2 weights: {problems}")
     return model.to(device).eval()
 
 

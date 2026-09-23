@@ -39,3 +39,9 @@ jobs:
       # the failure an unpinned torch produces: one test, two torch versions, both
       # "correct", disagreeing about whether it passes.
       install: "-r requirements.txt"
+  vjepa-offline:
+    uses: kineworld/.github/.github/workflows/python-tests.yml@main
+    with:
+      # The base job checks collection; this job actually runs the optional
+      # Transformers/safetensors loader tests on small local weights.
+      install: "-r requirements.txt -r requirements-vjepa2.txt"
