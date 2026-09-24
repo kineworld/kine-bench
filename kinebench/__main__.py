@@ -40,6 +40,22 @@ def build_parser():
     p.add_argument("--out", type=str, default=None)
 
     sub.add_parser("models", help="list benchmarkable models and their capabilities")
+
+    r = sub.add_parser(
+        "rep",
+        help="KINE-REP-1: representational-health probes (collapse diagnostics)",
+    )
+    r.add_argument("--model", type=str, default="kineone-wm",
+                   help="adapter alias or kineone-wm:<ckpt>")
+    r.add_argument("--ckpt", type=str, default=None)
+    r.add_argument("--data-dir", type=str, default=None)
+    r.add_argument("--smoke", action="store_true")
+    r.add_argument("--max-clips", type=int, default=48)
+    r.add_argument("--num-frames", type=int, default=16)
+    r.add_argument("--img-size", type=int, default=None)
+    r.add_argument("--device", choices=["auto", "cpu", "cuda"], default="auto")
+    r.add_argument("--batch-size", type=int, default=2)
+    r.add_argument("--out", type=str, default=None)
     return ap
 
 
@@ -85,12 +101,69 @@ def record(results, adapter, name, payload):
     results["tasks"][name] = payload
 
 
+def resolve_device(choice):
+    if choice == "cpu":
+        return torch.device("cpu")
+    if choice == "cuda":
+        return torch.device("cuda")
+    return torch.device("cuda" if torch.cuda.is_available() else "cpu")
+
+
+def run_rep(args):
+    """KINE-REP-1 CLI: report representational health for one adapter.
+
+    Deliberately standalone from `run`: the diagnostics only need an encoder and
+    a set of clips, so they can be applied to any model regardless of whether it
+    exposes the full planning interface.
+    """
+    from .rephealth import representational_health
+
+    device = resolve_device(args.device)
+    img_size = args.img_size or (64 if (args.smoke or not args.data_dir) else 224)
+    args.img_size = img_size
+
+    clips, source = load_clips(args)
+    adapter = build_adapter(
+        args.model, ckpt=args.ckpt, img_size=img_size,
+        num_frames=args.num_frames, batch_size=args.batch_size,
+    )
+    print(f"[rep] data: {source} | device: {device}")
+    print(f"[rep] model: {adapter.info.name} <{adapter.info.source}> license={adapter.info.license}")
+    model = adapter.build(str(device))
+
+    result = representational_health(model, clips, device=str(device))
+    payload = {
+        "harness": "kinebench",
+        "version": VERSION,
+        "probe": "KINE-REP-1",
+        "model": adapter.describe(),
+        "checkpoint": args.ckpt,
+        "data": source,
+        "num_frames": args.num_frames,
+        "img_size": img_size,
+        "device": str(device),
+        "result": result,
+    }
+    print(f"[rep] KINE-REP-1: {json.dumps(result, ensure_ascii=False)}")
+    if result.get("displacement", {}).get("status") == "unavailable":
+        print("[rep] note: the displacement probe needs >= 8 displacements per clip; "
+              "this run did not meet that, so that field is None rather than a score.")
+    if args.out:
+        Path(args.out).write_text(json.dumps(payload, indent=2, ensure_ascii=False), encoding="utf-8")
+        print(f"[rep] results -> {args.out}")
+    return 0
+
+
 def main(argv=None):
     args = build_parser().parse_args(argv)
 
     if args.cmd == "models":
         print(json.dumps(describe_all(), indent=2, ensure_ascii=False))
         return 0
+
+    if args.cmd == "rep":
+        return run_rep(args)
+
     if args.cmd != "run":
         return 1
 
