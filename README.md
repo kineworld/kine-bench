@@ -38,6 +38,35 @@ loads all safetensors shards through Transformers and rejects missing, extra or
 incompatible parameters before scoring. The optional CI job checks this with
 small synthetic local weights; it does not download or redistribute Meta weights.
 
+## Representational health (KINE-REP-1)
+
+`kinebench rep` reports whether a frozen encoder's feature space is losing
+dimensionality — the failure mode that can hide behind an improving prediction
+loss. It reports three diagnostics, each with a negative control in
+`tests/test_rephealth.py`:
+
+- **effective rank** — entropy of the centred singular-value spectrum, in `[1, D]`.
+  `1` means all variance is on one direction (collapsed); `D` means it is spread evenly.
+- **dimension utilisation** — variance fraction held by the top-1/4/16/64 principal
+  directions, which shows *where* variance concentrates.
+- **displacement identifiability** — can a consecutive-frame latent displacement be
+  matched to the clip that produced it? Reports accuracy, chance and the lift over
+  chance.
+
+```bash
+python -m kinebench rep --smoke --device cpu
+```
+
+Probes are deterministic functions of the features: repeated calls on the same
+features return identical numbers, so variation across runs reflects the
+checkpoint, not the harness. A statistic that cannot be distinguished from chance
+(for example when a clip has too few displacements to estimate a mean) is
+reported as `null` with an explanatory `status`, never as a score.
+
+Background and adoption decisions for the objectives and metrics behind these
+probes are recorded in
+[`docs/product/KINEWORLD_TECH_RADAR_2026Q3.md`](docs/product/KINEWORLD_TECH_RADAR_2026Q3.md).
+
 ## Independent verification
 
 Passing KineWorld's integrity checks only proves artifact consistency. Evidence becomes independent only when an external evaluator obtains the named upstream checkpoint, reruns the frozen protocol, retains raw logs and signs the supplied attestation with all deviations disclosed.

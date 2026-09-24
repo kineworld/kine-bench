@@ -12,10 +12,12 @@
 | 适配器接口 `kinebench/adapters/*` | `kine-bench` | MIT | 任何世界模型都能接入被评测 |
 | V-JEPA 2 适配器（对标 SOTA） | `kine-bench` | MIT/Apache-2.0 权重 | 见下，仅用其**公开权重**，不改其许可 |
 | 合成冒烟数据 `kinebench/synth.py` | `kine-bench` | MIT | 确定性、可复现，跨模型同分布 |
+| 表征健康度探针 `kinebench/rephealth.py`（有效秩 / 维度利用率 / 位移可辨识度） | `kine-bench` | MIT | **诊断手段公开，修复配方不公开**（见 §2） |
 | 动作条件化 rollout 架构 `kineworld_jepa/rollout.py` | `kine-jepa` | MIT | 接口与算法结构公开 |
 | 因果干预头（do(x) 接口）`kineworld_jepa/causal.py` | `kine-jepa` | MIT | 接口结构公开 |
 | KineGrant v0 票据协议 `kinegrant-protocol` | `kinegrant-protocol` | MIT | 能力票据**协议**公开；注释明确"非安全控制层" |
 | 站点与文档 `kineworld-site` | `kineworld-site` | MIT | 公开提案与路线图 |
+| 技术雷达与采纳决策 `docs/product/KINEWORLD_TECH_RADAR_2026Q3.md` | `kine-bench` | MIT | 记录**读了什么、采纳了什么**，不含配方数值 |
 
 ## 2. 闭源范围（技术壁垒，**不推 GitHub**）
 
@@ -26,6 +28,7 @@
 | **KineOne-WM 最终训练权重**（非 exp001 中间检查点） | 训练产物 | 模型本身的表征质量，是产品核心 |
 | **轨迹数据的动作标注**（kine-datapipe 产出的动作标签） | 数据 | 动作条件化 rollout 的监督来源，标注成本高 |
 | **后训练配方**：课程调度、数据混合比例、ViT-g teacher 蒸馏配置 | 配方 | 决定最终检查点能否从 0.5 基线爬到可用 |
+| **反坍缩目标的具体配方**：对比式逆动力学头的权重、warmup 调度、与正向预测损失的耦合方式、EMA 动量重调 | 配方 | 探针公开"怎么测坍缩"，配方不公开"怎么修"——这是 2026 Q3 雷达（`docs/product/KINEWORLD_TECH_RADAR_2026Q3.md` §5）的明确边界决定 |
 | **具身仿真评测的私有场景集**（超出公开 MuJoCo 三场景） | 数据 | 分布外物理想象力的真实难度来源 |
 | **推理 / 部署优化**（量化、蒸馏后推理图、 serving 配置） | 工程 | 产品化成本与延迟优势 |
 | **客户 / 合作方的具身视频数据** | 数据 | 商业机密，且涉隐私/合约 |
